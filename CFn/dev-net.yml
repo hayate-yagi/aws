@@ -1,0 +1,426 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Mappings:
+  CidrBlockMapping:
+    Vpc:
+      Cidr:
+        Name: 10.0.10.0/24
+    SubnetPublicA:
+      Cidr:
+        Name: 10.0.10.0/27
+    SubnetPublicC:
+      Cidr:
+        Name: 10.0.10.32/27
+    SubnetPrivateA:
+      Cidr:
+        Name: 10.0.10.64/27
+    SubnetPrivateC:
+      Cidr:
+        Name: 10.0.10.96/27
+
+Resources:
+# -------------------------------------------------------------- #
+#  VPC
+# -------------------------------------------------------------- #
+  DevelopVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [CidrBlockMapping, Vpc, Cidr]
+      Tags:
+        - Key: Name
+          Value: vpc-develop
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: igw-develop
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref DevelopVPC
+      InternetGatewayId: !Ref InternetGateway
+
+# -------------------------------------------------------------- #
+#  Subnet
+# -------------------------------------------------------------- #
+  SubnetPublicA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref DevelopVPC
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPublicA, Cidr]
+      Tags:
+        - Key: Name
+          Value: subnet-develop-public-a
+
+  SubnetPublicC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref DevelopVPC
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPublicC, Cidr]
+      Tags:
+        - Key: Name
+          Value: subnet-develop-public-c
+
+  SubnetPrivateA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref DevelopVPC
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPrivateA, Cidr]
+      Tags:
+        - Key: Name
+          Value: subnet-develop-private-a
+
+  SubnetPrivateC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-1a
+      VpcId: !Ref DevelopVPC
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPrivateC, Cidr]
+      Tags:
+        - Key: Name
+          Value: subnet-develop-private-c
+
+# -------------------------------------------------------------- #
+#  NAT Gateway
+# -------------------------------------------------------------- #
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref SubnetPublicA # Required
+      Tags:
+        - Key: Name
+          Value: ngw-develop
+
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: eip-ngw-develop
+
+# -------------------------------------------------------------- #
+#  RouteTable
+# -------------------------------------------------------------- #
+  # Public
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: rt-public-develop
+      VpcId: !Ref DevelopVPC # Required
+
+  RoutePublic:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Internetgateway
+      RouteTableId: !Ref RouteTablePublic # Required
+
+  SubnetPublicARTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePublic # Required
+      SubnetId: !Ref SubnetPublicA # Required
+
+  SubnetPublicCRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePublic # Required
+      SubnetId: !Ref SubnetPublicC # Required
+
+  # Private
+  RouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: rt-public-develop
+      VpcId: !Ref DevelopVPC # Required
+
+  RoutePrivate:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+      RouteTableId: !Ref RouteTablePrivate # Required
+
+  SubnetPrivateARTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate # Required
+      SubnetId: !Ref SubnetPrivateA # Required
+
+  SubnetPrivateCRTAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate # Required
+      SubnetId: !Ref SubnetPrivateC # Required
+
+# -------------------------------------------------------------- #
+#  NACL
+# -------------------------------------------------------------- #
+  NACLPublic:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      Tags:
+      - Key: Name
+        Value: acl-public-develop
+      VpcId: !Ref DevelopVPC # Required
+
+  NACLPublicInboundRule100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPrivateA, Cidr]
+      Egress: false
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 80
+        To: 80
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 100 # Required
+
+  NACLPublicInboundRule110:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPrivateA, Cidr]
+      Egress: false
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 443
+        To: 443
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 110 # Required
+
+  NACLPublicInboundRule120:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: !FindInMap [CidrBlockMapping, SubnetPrivateA, Cidr]
+      Egress: false
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 22
+        To: 22
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 120 # Required
+
+  NACLPublicInboundRule200:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 1024
+        To: 65535
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 200 # Required
+
+  NACLPublicInboundRule300:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: '{{resolve:ssm-secure:myIP:1}}'
+      Egress: false
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 80
+        To: 80
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 300 # Required
+
+  NACLPublicInboundRule310:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: '{{resolve:ssm-secure:myIP:1}}'
+      Egress: false
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 443
+        To: 443
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 310 # Required
+
+  NACLPublicOutboundRule100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 80
+        To: 80
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 100 # Required
+
+  NACLPublicOutboundRule110:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 443
+        To: 443
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 110 # Required
+
+  NACLPublicOutboundRule120:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 22
+        To: 22
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 120 # Required
+
+  NACLPublicOutboundRule200:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPublic # Required
+      PortRange:
+        From: 1024
+        To: 65535
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 200 # Required
+
+  NACLPublicAssociationA:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPublic # Required
+      SubnetId: !Ref SubnetPublicA # Required
+
+  NACLPublicAssociationC:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPublic # Required
+      SubnetId: !Ref SubnetPublicC # Required
+
+  NACLPrivateA:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      Tags:
+      - Key: Name
+        Value: acl-private-a-develop
+      VpcId: !Ref DevelopVPC # Required
+
+  NACLPrivateAInboundRule100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateA # Required
+      PortRange:
+        From: 80
+        To: 80
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 100 # Required
+
+  NACLPrivateAInboundRule200:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: false
+      NetworkAclId: !Ref NACLPrivateA # Required
+      PortRange:
+        From: 1024
+        To: 65535
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 200 # Required
+
+  NACLProvateAOutboundRule100:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPrivateA # Required
+      PortRange:
+        From: 80
+        To: 80
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 100 # Required
+
+  NACLPrivateAOutboundRule110:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPrivateA # Required
+      PortRange:
+        From: 443
+        To: 443
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 110 # Required
+
+  NACLPrivateAOutboundRule120:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPrivateA # Required
+      PortRange:
+        From: 22
+        To: 22
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 120 # Required
+
+  NACLPrivateAOutboundRule200:
+    Type: AWS::EC2::NetworkAclEntry
+    Properties:
+      CidrBlock: 0.0.0.0/0
+      Egress: true
+      NetworkAclId: !Ref NACLPrivateA # Required
+      PortRange:
+        From: 1024
+        To: 65535
+      Protocol: 6 # Required
+      RuleAction: "allow" # Required
+      RuleNumber: 200 # Required
+
+  NACLPrivateAssociationA:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPrivateA # Required
+      SubnetId: !Ref SubnetPrivateA # Required
+
+  NACLPrivateC:
+    Type: AWS::EC2::NetworkAcl
+    Properties:
+      Tags:
+        - Key: Name
+          Value: acl-private-c-develop
+      VpcId: !Ref DevelopVPC # Required
+
+  NACLPrivateAssociationC:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      NetworkAclId: !Ref NACLPrivateC # Required
+      SubnetId: !Ref SubnetPrivateC # Required
